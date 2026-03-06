@@ -1,5 +1,5 @@
 # Packet Structure Overview
-
+```c
 Ethernet Frame
   ├─ Destination MAC
   ├─ Source MAC
@@ -12,3 +12,4 @@ Ethernet Frame
             ├─ Source Port
             ├─ Destination Port
             └─ Data
+```

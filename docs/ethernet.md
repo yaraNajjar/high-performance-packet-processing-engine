@@ -6,8 +6,9 @@ EtherType (2 bytes)
 Payload (46–1500 bytes)
 
 Example:
-
+```c
 Ethernet
   └─ IP
        └─ TCP
             └─ Data
+```

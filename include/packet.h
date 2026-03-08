@@ -62,6 +62,22 @@ struct tcp_header {
 
 };
 
+// UDP Header
+struct udp_header {
+    uint16_t src_port;
+    uint16_t dst_port;
+    uint16_t length;
+    uint16_t checksum;
+};
+
+// ICMP Header
+struct icmp_header {
+    uint8_t type;
+    uint8_t code;
+    uint16_t checksum;
+    uint32_t rest_of_header; 
+};
+
 void parse_packet(const unsigned char *packet);
 
 #endif

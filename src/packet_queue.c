@@ -1,71 +1,68 @@
 #include "../include/packet_queue.h"
 #include <string.h>
-#include <pthread.h>
-#include <stdio.h>
+#include <stdatomic.h>
 
+/* Initialize queue */
 void queue_init(packet_queue_t *q)
 {
-    q->head = 0;
-    q->tail = 0;
-    q->count = 0;
-    pthread_mutex_init(&q->lock, NULL);
+    atomic_store(&q->head, 0);
+    atomic_store(&q->tail, 0);
 }
 
-/* Enqueue a single packet into the queue */
-int enqueue(packet_queue_t *q, const unsigned char *data, int length)
+/* Enqueue packet (Lock-Free) */
+int enqueue(packet_queue_t *q, packet_t *pkt)
 {
-    pthread_mutex_lock(&q->lock);
+    int tail = atomic_load(&q->tail);
+    int head = atomic_load(&q->head);
 
-    int next = (q->tail + 1) % MAX_QUEUE;
+    int next = (tail + 1) % MAX_QUEUE;
 
-    // Check if queue is full
-    if (q->count >= MAX_QUEUE) {
-        pthread_mutex_unlock(&q->lock);
+    /* Queue full */
+    if (next == head)
         return -1;
-    }
 
-    memcpy(q->packets[q->tail].data, data, length);
-    q->packets[q->tail].length = length;
+    q->packets[tail] = *pkt;
 
-    q->tail = next;
-    q->count++;
+    atomic_store(&q->tail, next);
 
-    pthread_mutex_unlock(&q->lock);
     return 0;
 }
 
-/* Dequeue a single packet */
+/* Dequeue single packet */
 int dequeue(packet_queue_t *q, packet_t *pkt)
 {
-    pthread_mutex_lock(&q->lock);
+    int head = atomic_load(&q->head);
+    int tail = atomic_load(&q->tail);
 
-    if (q->count == 0) {
-        pthread_mutex_unlock(&q->lock);
+    /* Queue empty */
+    if (head == tail)
         return -1;
-    }
 
-    *pkt = q->packets[q->head];
+    *pkt = q->packets[head];
 
-    q->head = (q->head + 1) % MAX_QUEUE;
-    q->count--;
+    atomic_store(&q->head, (head + 1) % MAX_QUEUE);
 
-    pthread_mutex_unlock(&q->lock);
     return 0;
 }
 
-/* Batch dequeue: dequeue up to batch_size packets at once */
+/* Batch dequeue (much faster for workers) */
 int dequeue_batch(packet_queue_t *q, packet_t *batch, int batch_size)
 {
-    pthread_mutex_lock(&q->lock);
+    int head = atomic_load(&q->head);
+    int tail = atomic_load(&q->tail);
 
     int n = 0;
-    while (n < batch_size && q->count > 0) {
-        batch[n] = q->packets[q->head];
-        q->head = (q->head + 1) % MAX_QUEUE;
-        q->count--;
+
+    while (head != tail && n < batch_size) {
+
+        batch[n] = q->packets[head];
+
+        head = (head + 1) % MAX_QUEUE;
+
         n++;
     }
 
-    pthread_mutex_unlock(&q->lock);
-    return n; // return the number of packets dequeued
+    atomic_store(&q->head, head);
+
+    return n;
 }

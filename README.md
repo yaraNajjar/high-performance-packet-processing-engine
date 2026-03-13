@@ -9,11 +9,12 @@ The system captures packets using **libpcap**,  processes them through a **multi
 - Extract **Ethernet** and **IP headers**
 - Print **MAC addresses** and **IP addresses**
 - **Multi-threaded worker architecture** for high throughput
-- **Packet queue** for safe communication between capture and workers
+- **Lock-free ring buffer packet queue** for high-throughput worker communication
 - **Batch packet processing** for improved performance
 - **Firewall rule engine** (IP allow/deny)
 - **Packets-per-second (PPS) benchmarking**
 - **Real-time statistics monitoring**
+- **Real-time packet latency measurement** (microseconds per packet)
 
 ## Technologies
 
@@ -79,16 +80,19 @@ NEW	        | Queue + Worker Threads + Batch Processing
 Example output:
 
 ```bash
+--- OLD System Benchmark ---
 === Benchmark Results ===
 System: OLD (single-thread processing)
-Total packets captured: 37385
-Average PPS: 623
+Total packets captured: 28110
+Average PPS: 468
+
+--- NEW System Benchmark ---
 === Benchmark Results ===
 System: NEW (queue + workers + batching)
-Total packets processed: 37863
-Allowed packets: 29841
-Blocked packets: 8022
-Average PPS: 631
+Total packets processed: 93840
+Allowed packets: 65637
+Blocked packets: 28203
+Average PPS: 1564
 ```
 
 Full benchmark logs are available in:
@@ -97,7 +101,9 @@ docs/benchmark_results.txt
 ```
 ## Architecture
 
-The system uses a **multi-threaded packet processing pipeline**.
+- The system uses a **multi-threaded packet processing pipeline**.
+- The system uses a **lock-free ring buffer** for packet handoff between capture and worker threads.
+- **Latency** timestamps are measured for **real-time** packet processing analysis.
 
 Architecture diagram:
 ```bash
@@ -113,3 +119,4 @@ docs/project_architecture.md
 - Firewall rules can be modified in **rules.c**.
 - The current implementation parses **Ethernet** and **IP** headers.
 - Future extensions include deeper parsing of **TCP / UDP / ICMP** protocols.
+- Packet **latency** is measured in microseconds for **real-time** performance analysis.

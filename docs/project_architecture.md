@@ -6,8 +6,11 @@ docs/architecture_diagram.md
 
 ## Overview
 
-- The system is designed to process network packets in **high-performance environments** using a **multi-threaded architecture**.
-- The architecture separates packet **capture, processing**, and **monitoring** into different components in order to improve throughput and scalability.
+- The system processes network packets in **high-performance environments** using a **multi-threaded architecture**.
+
+- Packet capture, processing, and monitoring are separated to **maximize throughput** and **reduce contention**.
+
+- Real-time latency measurement is added for each packet.
 
 The packet flow:
 
@@ -19,8 +22,7 @@ Network Interface
      (libpcap)
         │
         ▼
-   Packet Queue
- (Shared buffer)
+   Lock-Free Ring Buffer
         │
         ▼
   Worker Threads
@@ -34,30 +36,22 @@ Network Interface
         │
         ▼
  Statistics / Monitoring
+ (Packets/sec + Latency)
  ```
 
 ## System Components
-1. Packet Capture
+Packet Capture
 
 File:
 ```bash
 src/packet_sniffer.c
 ```
-The capture module uses **libpcap** to receive packets from the network interface.
+* Captures packets from the network interface using ```libpcap```.
 
-Packets are captured using:
-```bash
-pcap_dispatch()
-```
-Captured packets are pushed into the **packet queue** for processing by worker threads.
+* Copies packets into internal buffers.
 
-Responsibilities:
+* Sends packets to the **lock-free ring buffer**.
 
-* Capture packets from network interface
-
-* Copy packet data into internal buffers
-
-* Send packets to the processing queue
 
 ## Packet Queue
 
@@ -65,25 +59,11 @@ File:
 ```bash
 src/packet_queue.c
 ```
-The packet queue acts as a **shared buffer** between the capture thread and worker threads.
+* Implements a **lock-free ring buffer** between capture and worker threads.
 
-It is implemented as a **ring buffer** with:
+* Supports **batch dequeue** for high throughput.
 
-* head pointer
-
-* tail pointer
-
-* packet count
-
-Synchronization is handled using a **mutex**.
-
-Responsibilities:
-
-* Store captured packets
-
-* Allow workers to retrieve packets
-
-* Support **batch dequeue** for performance
+* Ensures minimal locking overhead.
 
 ## Worker Threads
 
@@ -91,7 +71,11 @@ Workers are responsible for **processing packets in parallel**.
 
 Each worker performs:
 
-1. equeue packet batch
+* Process packets in parallel using batch processing (BATCH_SIZE = 64).
+
+* Steps per worker:
+
+1. Dequeue batch
 
 2. Validate Ethernet frame
 
@@ -101,11 +85,7 @@ Each worker performs:
 
 5. Parse packet
 
-Workers use **batch processing**:
-```bash
-BATCH_SIZE = 50
-```
-Processing multiple packets per iteration improves CPU cache efficiency.
+6. Measure latency (microseconds)
 
 ## Firewall Rule Engine
 
@@ -113,21 +93,11 @@ File:
 ```bash
 src/rules.c
 ```
-The firewall module implements a simple rule engine.
+* Blocks or allows packets based on IP rules.
 
-Rules define whether packets from a specific **IP address** should be:
-
-* allowed
-
-* blocked
-
-Example rule:
+* Example:
 ```bash
 add_rule(&my_rules, inet_addr("8.8.8.8"), false);
-```
-Which blocks packets from:
-```bash
-8.8.8.8
 ```
 
 ## Packet Parser
@@ -160,6 +130,7 @@ Displayed statistics:
 * Packets processed per second
 * Allowed packets
 * Blocked packets
+* Packet latency (avg/min/max)
 
 Example output:
 ```bash
@@ -183,7 +154,7 @@ Capture → Parse → Filter
 
 Multi-thread architecture:
 ```bash
-Capture → Queue → Workers → Parse → Filter
+Capture → ring buffer → Workers → Parse → Filter
 ```
 
 Benchmark duration:
@@ -193,54 +164,14 @@ Benchmark duration:
 
 Results show **packets-per-second (PPS)** for both systems.
 
-Architecture Diagram
-```bash
-           +-------------------+
-           |   Network Card    |
-           +-------------------+
-                     |
-                     ▼
-             +--------------+
-             |   libpcap    |
-             | Packet Capture|
-             +--------------+
-                     |
-                     ▼
-            +----------------+
-            |   Packet Queue |
-            |   Ring Buffer  |
-            +----------------+
-             /       |       \
-            /        |        \
-           ▼         ▼         ▼
-     +---------+ +---------+ +---------+
-     | Worker1 | | Worker2 | | Worker3 |
-     +---------+ +---------+ +---------+
-           |          |          |
-           ▼          ▼          ▼
-        Firewall   Firewall   Firewall
-           |          |          |
-           ▼          ▼          ▼
-        Parser     Parser     Parser
-```
-
-### Performance Optimizations
-
-The system improves performance using:
-
-* Multi-threading
-* Batch packet processing
-* Shared queue
-* Minimal memory allocations
-
-### File Map
+## File Map
 ```bash
 src/
- packet_sniffer.c   -> main capture engine
- parser.c           -> packet parsing
- packet_queue.c     -> queue implementation
+ packet_sniffer.c   -> main capture engine & latency measurement
+ parser.c           -> advanced parser integrated with queue + workers
+ packet_queue.c     -> lock-free ring buffer
  rules.c            -> firewall rules
-
+ packet_parser.c      -> standalone raw socket TCP/IP packet sniffer
 include/
  packet.h
  packet_queue.h
